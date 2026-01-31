@@ -34,7 +34,7 @@ client.once('clientReady', () => {
   // ⏰ Cron de horarios (ejemplo: domingos a las 17:00)
   cron.schedule('0 6 * * *', async () => {
     try {
-      const channelId = '1382449466581188742'; // <-- pon el ID real
+      const channelId = '1379827783282196720'; // <-- pon el ID real
       const channel = await client.channels.fetch(channelId);
       if (!channel) return;
 
