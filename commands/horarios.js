@@ -2,7 +2,6 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 
 const MAX_WAR_PLAYERS = 6;
 
-// 🔔 ROLES A NOTIFICAR
 const WAR_ROLE_IDS = [
   '1379816348259188868',
   '1379816773360029766',
@@ -12,12 +11,13 @@ const WAR_ROLE_IDS = [
 const globalWars = {};
 let globalMessage = null;
 
-const STATUS = {
-  '✅': 'puede',
-  '❌': 'noPuede',
-  '❓': 'posible',
-  '❗': 'sub'
-};
+// 🔒 Mapeo usando claves normalizadas
+const STATUS = new Map([
+  ['✅', 'puede'],
+  ['❌', 'noPuede'],
+  ['❓', 'posible'],
+  ['❗', 'sub']
+]);
 
 const WAR_HOURS = [16, 17, 18, 19, 20, 21, 22, 23, 24];
 
@@ -37,7 +37,7 @@ module.exports = {
 };
 
 // =====================================================
-// 🧠 FUNCIÓN PRINCIPAL DE WAR (una por hora)
+// 🧠 CREAR WAR
 // =====================================================
 async function createWar(channel, hour) {
 
@@ -63,85 +63,83 @@ async function createWar(channel, hour) {
       .setColor(confirmed >= MAX_WAR_PLAYERS ? 0xff5555 : 0x2ecc71)
       .setDescription(`Faltan **${remaining}** para completar la war`);
 
-    const hasAny =
-      state.puede.length ||
-      state.noPuede.length ||
-      state.posible.length ||
-      state.sub.length ||
-      state.drop.length;
-
-    if (!hasAny) return embed;
-
     if (state.puede.length)
-      embed.addFields({
-        name: `✅ Puede (${state.puede.length})`,
-        value: format(state.puede),
-        inline: false
-      });
+      embed.addFields({ name: `✅ Puede (${state.puede.length})`, value: format(state.puede) });
 
     if (state.noPuede.length)
-      embed.addFields({
-        name: `❌ No puede (${state.noPuede.length})`,
-        value: format(state.noPuede),
-        inline: false
-      });
+      embed.addFields({ name: `❌ No puede (${state.noPuede.length})`, value: format(state.noPuede) });
 
     if (state.posible.length)
-      embed.addFields({
-        name: `❓ Posible (${state.posible.length})`,
-        value: format(state.posible),
-        inline: false
-      });
+      embed.addFields({ name: `❓ Posible (${state.posible.length})`, value: format(state.posible) });
 
     if (state.sub.length)
-      embed.addFields({
-        name: `❗ Puede ser sub (${state.sub.length})`,
-        value: format(state.sub),
-        inline: false
-      });
+      embed.addFields({ name: `❗ Puede ser sub (${state.sub.length})`, value: format(state.sub) });
 
     if (state.drop.length)
-      embed.addFields({
-        name: `💥 Drop (${state.drop.length})`,
-        value: format(state.drop),
-        inline: false
-      });
+      embed.addFields({ name: `💥 Drop (${state.drop.length})`, value: format(state.drop) });
 
     return embed;
   };
 
   const message = await channel.send({ embeds: [render()] });
 
-  for (const emoji of Object.keys(STATUS)) {
+  // 🔒 Añadir reacciones base
+  for (const emoji of STATUS.keys()) {
     await message.react(emoji);
   }
 
-  const collector = message.createReactionCollector({ dispose: true });
+  // 🔒 Filtrado fuerte + ignorar bots
+  const collector = message.createReactionCollector({
+    dispose: true,
+    filter: (reaction, user) =>
+      !user.bot &&
+      reaction.emoji.name &&
+      STATUS.has(reaction.emoji.name.normalize())
+  });
 
-  const updateUser = (user, emoji) => {
+  const updateUser = (user, rawEmoji) => {
+
+    if (!rawEmoji) return;
+
+    const emoji = rawEmoji.normalize();
+
+    if (!STATUS.has(emoji)) return;
+
+    const statusKey = STATUS.get(emoji);
+    if (!statusKey) return;
+
     const tag = `<@${user.id}>`;
     const wasInPuede = state.puede.includes(tag);
 
-    Object.values(state).forEach(list => {
+    // 🔒 Eliminar usuario de todas las listas
+    for (const list of Object.values(state)) {
       const i = list.indexOf(tag);
       if (i !== -1) list.splice(i, 1);
-    });
+    }
 
+    // 🔒 Caso especial drop
     if (emoji === '❌' && wasInPuede) {
-      state.drop.push(tag);
+      if (!state.drop.includes(tag)) {
+        state.drop.push(tag);
+      }
       return;
     }
 
-    state[STATUS[emoji]].push(tag);
+    if (!state[statusKey]) return;
+
+    if (!state[statusKey].includes(tag)) {
+      state[statusKey].push(tag);
+    }
   };
 
   collector.on('collect', async (reaction, user) => {
-    if (user.bot) return;
 
     const emojiUsed = reaction.emoji.name;
+    if (!emojiUsed) return;
 
-    for (const emoji of Object.keys(STATUS)) {
-      if (emoji !== emojiUsed) {
+    // 🔒 Eliminar otras reacciones del usuario
+    for (const emoji of STATUS.keys()) {
+      if (emoji !== emojiUsed.normalize()) {
         const r = message.reactions.cache.get(emoji);
         if (r) await r.users.remove(user.id).catch(() => {});
       }
@@ -152,41 +150,52 @@ async function createWar(channel, hour) {
     await updateGlobalStatus(channel);
   });
 
-  collector.on('remove', async () => {
+  collector.on('remove', async (reaction, user) => {
+
+    if (user.bot) return;
+
+    const tag = `<@${user.id}>`;
+
+    for (const list of Object.values(state)) {
+      const i = list.indexOf(tag);
+      if (i !== -1) list.splice(i, 1);
+    }
+
     await message.edit({ embeds: [render()] });
+    await updateGlobalStatus(channel);
   });
 }
 
 // =====================================================
-// 📣 MENSAJE GLOBAL DE ESTADO (3 ROLES)
+// 📣 GLOBAL STATUS
 // =====================================================
 async function updateGlobalStatus(channel) {
-  const mentions = WAR_ROLE_IDS.map(id => `<@&${id}>`).join(' ');
 
-  let text = `${mentions} 📣 **Actualización de Wars**\n\n`;
+  let text = `📣 **Actualización de Wars**\n\n`;
 
-  for (const hour of Object.keys(globalWars).sort()) {
+  let hasAny = false;
+
+  for (const hour of Object.keys(globalWars).sort((a, b) => a - b)) {
+
     const state = globalWars[hour];
     const confirmed = state.puede.length + state.sub.length;
     const remaining = Math.max(0, MAX_WAR_PLAYERS - confirmed);
 
-    if (remaining === 0) {
-      text += `🕒 **${hour}:00** → ✅ COMPLETA\n`;
-    } else {
+    // 🔥 Solo mostrar si faltan 3 o menos
+    if (remaining <= 4 && remaining > 0) {
+      hasAny = true;
       text += `🕒 **${hour}:00** → ⏳ ${remaining} plazas libres\n`;
     }
   }
 
-  const payload = {
-    content: text,
-    allowedMentions: {
-      roles: WAR_ROLE_IDS
-    }
-  };
+  if (!hasAny) {
+    text += `✅ No hay wars cercanas a completarse.\n`;
+  }
 
   if (!globalMessage) {
-    globalMessage = await channel.send(payload);
+    globalMessage = await channel.send({ content: text });
   } else {
-    await globalMessage.edit(payload);
+    await globalMessage.edit({ content: text });
   }
 }
+

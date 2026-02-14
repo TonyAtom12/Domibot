@@ -10,8 +10,9 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions
-  ],
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.MessageContent  
+   ], // 👈 ESTE ES EL IMPORTANTE
   partials: [
     Partials.Message,
     Partials.Channel,

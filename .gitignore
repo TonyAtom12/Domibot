@@ -1,2 +1,5 @@
 node_modules/
 .env
+# Datos dinámicos
+data/wars.json
+data/images/

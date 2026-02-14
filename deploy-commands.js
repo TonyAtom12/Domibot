@@ -14,14 +14,17 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('⏳ Registrando comandos slash...');
+    console.log('⏳ Registrando comandos slash en el servidor (modo desarrollo)...');
 
     await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
+      Routes.applicationGuildCommands(
+        process.env.CLIENT_ID,
+        process.env.GUILD_ID   // 👈 necesitas esto
+      ),
       { body: commands }
     );
 
-    console.log('✅ Comandos registrados correctamente');
+    console.log('✅ Comandos registrados correctamente en el servidor');
   } catch (error) {
     console.error(error);
   }
